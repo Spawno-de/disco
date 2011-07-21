@@ -50,6 +50,8 @@ payload_type(<<"OUTPUT">>) ->
     {opt, [{array, [string, string]},
            {array, [string, string, string]}]};
 
+payload_type(<<"INC">>) -> string;
+
 payload_type(_Type) -> none.
 
 -type worker_msg() :: {nonempty_string(), term()}.
@@ -165,7 +167,16 @@ do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master} = S) ->
             {stop, {done, results(S)}};
         {error, Reason} ->
             {stop, {error, Reason}}
-    end.
+    end;
+
+%new handle to counters
+do_handle({<<"INC">>, Counter}, #state{task = Task, master = Master} = S) ->
+    io:format("======================~n"),
+    io:format("incrementing~n"),
+    io:format("======================~n"),
+    disco_worker:event({<<"INC">>, Counter}, Task, Master), 
+    {ok, {"OK", <<"ok">>}, S, rate_limit}.
+
 
 -spec input_reply([worker_inputs:worker_input()]) -> worker_msg().
 input_reply(Inputs) ->
