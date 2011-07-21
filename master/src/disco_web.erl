@@ -243,7 +243,13 @@ count_maps(L) ->
                          end, {0, 0}, L),
     {M, N - M}.
 
-render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed},
+render_counters([], Acc) ->
+    Acc;
+render_counters([H|T], Acc) ->
+    [CounterName, Value] = H,
+    render_counters(T, Acc++io_lib:nl()++CounterName++": "++integer_to_list(Value)).
+
+render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed, Counters},
                {Hosts, Modes}) ->
     {NMapRun, NRedRun} = count_maps(Modes),
     {NMapDone, NRedDone} = count_maps(Ready),
@@ -270,6 +276,9 @@ render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed},
                true -> 0
            end,
 
+    CountersString = render_counters(Counters, ""),
+    io:format("~s", [CountersString]),
+
     {struct, [{timestamp, Timestamp},
               {active, Status},
               {mapi, [MapI, NMapRun, NMapDone, NMapFail]},
@@ -279,7 +288,8 @@ render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed},
               {inputs, lists:sublist(JobInfo#jobinfo.inputs, 100)},
               {worker, JobInfo#jobinfo.worker},
               {hosts, [list_to_binary(Host) || Host <- Hosts]},
-              {owner, JobInfo#jobinfo.owner}
+              {owner, JobInfo#jobinfo.owner},
+	      {counters, list_to_binary(CountersString)}
              ]}.
 
 status_msg(invalid_job) -> [<<"unknown job">>, []];

@@ -45,6 +45,7 @@ stop() ->
 
 init(_Args) ->
     _ = ets:new(event_files, [named_table]),
+    _ = ets:new(job_counters, [named_table]),
     {ok, {dict:new(), dict:new()}}.
 
 json_list(List) -> json_list(List, []).
@@ -146,7 +147,9 @@ handle_call({get_jobinfo, JobName}, _From, {Events, _MsgBuf} = S) ->
             Ready = event_filter(task_ready, EventList),
             Failed = event_filter(task_failed, EventList),
             Start = format_timestamp(JobStart),
-            {reply, {ok, {Start, Pid, JobNfo, Results, Ready, Failed}}, S}
+	    Counters = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
+	    %io:format("~w", [Counters]),
+            {reply, {ok, {Start, Pid, JobNfo, Results, Ready, Failed, Counters}}, S}
     end.
 
 handle_cast({add_job_event, Host, JobName, Msg, Params}, {_Events, MsgBuf} = S) ->
@@ -176,7 +179,16 @@ handle_cast({job_done, JobName}, {Events, MsgBuf} = S) ->
 handle_cast({clean_job, JobName}, {Events, _MsgBuf} = S) ->
     {_, {_, MsgBufN}} = handle_cast({job_done, JobName}, S),
     delete_jobdir(JobName),
-    {noreply, {dict:erase(JobName, Events), MsgBufN}}.
+    {noreply, {dict:erase(JobName, Events), MsgBufN}};
+
+handle_cast({increment_counter, _Host, JobName, Counter, _Paramas}, S) ->
+    {struct,[{<<"name">>, Name}, {<<"value">>, CounterValue}]} = Counter,
+    CounterName = binary_to_list(Name),
+    case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
+	[] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
+	_ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
+    end,
+    {noreply, S}.
 
 handle_info(Msg, State) ->
     error_logger:warning_report(["Unknown message received: ", Msg]),
@@ -280,6 +292,9 @@ task_event(Task, Event, Params) ->
 task_event(Task, Event, Params, Host) ->
     task_event(Task, Event, Params, Host, event_server).
 
+task_event(Task, {<<"INC">>, Counter}, {}, Host, EventServer) ->
+    gen_server:cast(EventServer, {increment_counter, Host, Task#task.jobname, Counter, {}});
+    
 task_event(Task, {Type, Message}, Params, Host, EventServer) ->
     event(EventServer,
           Host,

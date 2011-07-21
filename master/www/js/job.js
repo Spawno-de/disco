@@ -65,6 +65,7 @@ function Job(name) {
     }
     $("#cur_nodes").html(data.hosts.join("<br/>"));
     $("#results").html(prepare_urls(data.results));
+    $("#counters").html(data.counters);
 
     $(".url:odd").css({"background": "#eee"});
   }
