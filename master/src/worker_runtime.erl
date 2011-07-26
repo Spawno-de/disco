@@ -1,5 +1,6 @@
 -module(worker_runtime).
--export([init/2, handle/2, get_pid/1]).
+-define(COUNTER_UPDATE_TIME, 2000).
+-export([init/2, handle/2, get_pid/1, init_counters/2]).
 
 -include("disco.hrl").
 
@@ -10,7 +11,8 @@
                 child_pid :: 'none' | non_neg_integer(),
                 persisted_outputs :: [string()],
                 output_filename :: 'none' | string(),
-                output_file :: 'none' | file:io_device()}).
+                output_file :: 'none' | file:io_device(),
+	        counter_pid :: 'none' | non_neg_integer()}).
 -type state() :: #state{}.
 -export_type([state/0]).
 
@@ -23,7 +25,8 @@ init(Task, Master) ->
            child_pid = none,
            persisted_outputs = [],
            output_filename = none,
-           output_file = none}.
+           output_file = none,
+	   counter_pid = spawn_link(worker_runtime, init_counters, [Task, Master])}.
 
 -spec get_pid(state()) -> 'none' | non_neg_integer().
 get_pid(#state{child_pid = Pid}) ->
@@ -159,7 +162,11 @@ do_handle({<<"OUTPUT">>, Results}, S) ->
 do_handle({<<"PING">>, _Body}, S) ->
     {ok, {"OK", <<"pong">>}, S};
 
-do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master} = S) ->
+do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master, counter_pid = CounterPid} = S) ->
+    CounterPid ! {send_now, self()},
+    receive
+	all_counters_sent -> all_counters_sent
+    end,
     case close_output(S) of
         ok ->
             Time = disco:format_time_since(S#state.start_time),
@@ -171,9 +178,10 @@ do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master} = S) ->
     end;
 
 %new handle to counters
-do_handle({<<"INC">>, Counter}, #state{task = Task, master = Master} = S) ->
-    disco_worker:event({<<"INC">>, Counter}, Task, Master), 
-    {ok, {"OK", <<"ok">>}, S, rate_limit}.
+do_handle({<<"INC">>, Counter}, #state{counter_pid = CounterPid} = S) ->
+    {struct,[{<<110,97,109,101>>,Name},{<<118,97,108,117,101>>,Value}]} = Counter,
+    CounterPid ! {counter_add, binary_to_list(Name), Value},
+    {ok, {"OK", <<"ok">>}, S}.
 
 
 -spec input_reply([worker_inputs:worker_input()]) -> worker_msg().
@@ -260,3 +268,42 @@ close_output(#state{output_file = File}) ->
 -spec ioerror(list(), atom()) -> term().
 ioerror(Msg, Reason) ->
     [Msg, ": ", atom_to_list(Reason)].
+
+init_counters(Task, Master) ->
+    _ = ets:new(job_counters, [named_table]),
+    loop_counters(now(), Task, Master).
+
+loop_counters(Time, Task, Master) ->
+    receive
+	{counter_add, CounterName, CounterValue} ->
+	    case ets:match(job_counters, {CounterName, '$1'}) of
+		[] -> ets:insert(job_counters, {CounterName, CounterValue});
+		_ -> ets:update_counter(job_counters, CounterName, CounterValue)
+	    end,
+	    NewTime = now(),
+	    Diff = timer:now_diff(NewTime, Time) / 1000,
+	    case Diff of
+		N when N > ?COUNTER_UPDATE_TIME ->
+		    send_counters(Task, Master),
+		    loop_counters(now(), Task, Master);
+		_ ->
+		    loop_counters(Time, Task, Master)
+	    end;
+	{send_now, From} ->
+	    send_counters(Task, Master),
+	    From ! all_counters_sent
+    after
+	?COUNTER_UPDATE_TIME ->
+	    send_counters(Task, Master),
+	    loop_counters(now(), Task, Master)
+    end.
+
+send_counters(Task, Master) ->
+    AllCounters = ets:match(job_counters, '$1'),
+    SendCounter = fun(X) ->
+			  [{Name,Value}] = X,
+			  Counter = {struct,[{<<110,97,109,101>>,Name},{<<118,97,108,117,101>>,Value}]},    
+			  disco_worker:event({<<"INC">>, Counter}, Task, Master)
+		  end,
+    lists:foreach(SendCounter , AllCounters),
+    ets:delete_all_objects(job_counters).

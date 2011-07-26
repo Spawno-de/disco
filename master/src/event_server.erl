@@ -182,8 +182,8 @@ handle_cast({clean_job, JobName}, {Events, _MsgBuf} = S) ->
     {noreply, {dict:erase(JobName, Events), MsgBufN}};
 
 handle_cast({increment_counter, _Host, JobName, Counter, _Paramas}, S) ->
-    {struct,[{<<"name">>, Name}, {<<"value">>, CounterValue}]} = Counter,
-    CounterName = binary_to_list(Name),
+    {struct,[{<<"name">>, CounterName}, {<<"value">>, CounterValue}]} = Counter,
+    %CounterName = binary_to_list(Name),
     case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
 	[] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
 	_ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)

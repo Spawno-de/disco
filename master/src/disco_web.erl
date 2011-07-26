@@ -277,7 +277,6 @@ render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed, Counters},
            end,
 
     CountersString = render_counters(Counters, ""),
-    io:format("~s", [CountersString]),
 
     {struct, [{timestamp, Timestamp},
               {active, Status},
