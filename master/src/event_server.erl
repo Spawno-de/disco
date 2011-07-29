@@ -162,6 +162,7 @@ handle_cast({add_job_event, Host, JobName, Msg, Params}, {_Events, MsgBuf} = S) 
 % check that the job coord is still alive - if not, call job_done for
 % the zombie job.
 handle_cast({job_done, JobName}, {Events, MsgBuf} = S) ->
+    serialize_job_counters(JobName),
     case ets:lookup(event_files, JobName) of
         [] ->
             ok;
@@ -183,7 +184,6 @@ handle_cast({clean_job, JobName}, {Events, _MsgBuf} = S) ->
 
 handle_cast({increment_counter, _Host, JobName, Counter, _Paramas}, S) ->
     {struct,[{<<"name">>, CounterName}, {<<"value">>, CounterValue}]} = Counter,
-    %CounterName = binary_to_list(Name),
     case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
 	[] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
 	_ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
@@ -196,6 +196,9 @@ handle_info(Msg, State) ->
 
 event_log(JobName) ->
     filename:join(disco:jobhome(JobName), "events").
+
+job_counters_file_name(JobName) ->
+    filename:join(disco:jobhome(JobName), "counters").
 
 tail_log(JobName, N) ->
     Tail = string:tokens(os:cmd(["tail -n ", integer_to_list(N), " ",
@@ -355,3 +358,21 @@ job_event_handler_do(File, Buf, BufSize) ->
 flush_buffer(_, []) -> ok;
 flush_buffer(File, Buf) ->
     ok = file:write(File, lists:reverse(Buf)).
+
+render_job_counters([[Name, Value]], Acc) ->
+    Acc++"{\""++Name++"\""++": "++
+	integer_to_list(Value)++
+	"}";
+
+render_job_counters([[Name, Value] | T], Acc) ->
+    render_job_counters(T, Acc++"{\""++Name++"\""++": "++
+	integer_to_list(Value)++
+	"}, ").
+
+serialize_job_counters(JobName) ->
+    {ok, _JobName} = disco:make_dir(disco:jobhome(JobName)),
+    {ok, File} = file:open(job_counters_file_name(JobName), [append, raw]),
+    CounterData = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
+    AllCounterData = render_job_counters(CounterData, ""),
+    file:write(File, "["++AllCounterData++"]"),
+    file:close(File).

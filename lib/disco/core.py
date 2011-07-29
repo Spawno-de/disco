@@ -118,7 +118,7 @@ class Disco(object):
         """
         urls = self.ddfs.get(self.ddfs.job_oob(jobname))['urls']
         return list(set(self.ddfs.blob_name(replicas[0])
-                        for replicas in urls))
+                        for replicas in urls))    
 
     def profile_stats(self, jobname, mode='', stream=sys.stdout):
         """
@@ -225,6 +225,10 @@ class Disco(object):
     def rawevents(self, jobname, offset=0):
         return self.request("/disco/ctrl/rawevents?name=%s" % jobname,
                             offset=offset)
+
+    def counters(self, jobname):
+        return json.loads(
+            self.request('/disco/ctrl/get_counters?name=%s' % jobname))
 
     def mapresults(self, jobname):
         return json.loads(

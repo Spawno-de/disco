@@ -84,6 +84,9 @@ getop("parameters", {_Query, Name}) ->
 getop("rawevents", {_Query, Name}) ->
     job_file(Name, "events");
 
+getop("get_counters", {_Query, Name}) ->
+    job_file(Name, "counters");
+
 getop("jobevents", {Query, Name}) ->
     {value, {_, NumS}} = lists:keysearch("num", 1, Query),
     Num = list_to_integer(NumS),

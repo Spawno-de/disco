@@ -66,7 +66,8 @@ class Job(object):
                        'purge',
                        'results',
                        'mapresults',
-                       'wait')
+                       'wait',
+                       'counters')
     """
     These methods from :class:`disco.core.Disco`,
     which take a jobname as the first argument,
@@ -83,6 +84,7 @@ class Job(object):
         - :meth:`disco.core.Disco.purge`
         - :meth:`disco.core.Disco.results`
         - :meth:`disco.core.Disco.wait`
+        - :meth `disco.core.Disco.counters`
 
     For instance, you can use `job.wait()` instead of `disco.wait(job.name)`.
     The job methods in :class:`disco.core.Disco` come in handy if you want to manipulate
