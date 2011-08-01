@@ -1,24 +1,25 @@
 from disco.test import TestCase, TestJob
 from disco.util import kvgroup
+from disco.counter import Counter
 
-class CounterJob(TestJob):
+class ManyMapJob(TestJob):
+    sort = False
+
     @staticmethod
     def map(line, params):
-        from disco.counters import Counter
-        c = Counter("map yields")
+        c = Counter("c")
         for word in line.lower().split():
-            c.inrement()
+            c.increment()
             yield word, 1
 
     @staticmethod
     def reduce(iter, params):
-        from disco.counters import Counter
-        c = Counter("reduce yields")
-        for k, vs in kvgroup:
-            c.inrement()
+        c = Counter("c")
+        for k, vs in kvgroup(sorted(iter)):
+            c.increment()
             yield k, sum(int(v) for v in vs)
 
-class CounterTestCase(TestCase):
+class ManyMapTestCase(TestCase):
     @property
     def partitions(self):
         return min(self.num_workers * 10, 300)
@@ -27,12 +28,11 @@ class CounterTestCase(TestCase):
         return "Gutta cavat cavat lapidem\n" * 100
 
     def test_five(self):
-        self.job = CounterJob().run(input=self.test_server.urls([''] * 5),
+        self.job = ManyMapJob().run(input=self.test_server.urls([''] * 5),
                                     partitions=self.partitions)
-        self.job.wait(show=False)
-        print self.job.counters()
-#        self.assertEquals(dict(self.results(self.job)),
-#                          {'gutta':   int(5e2),
-#                           'cavat':   int(1e3),
-#                           'lapidem': int(5e2)})
+        self.assertEquals(dict(self.results(self.job)),
+                          {'gutta':   int(5e2),
+                           'cavat':   int(1e3),
+                           'lapidem': int(5e2)})
+        self.assertEquals(self.job.counters(), [{u'c': 2003}])
     
