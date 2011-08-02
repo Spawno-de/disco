@@ -359,6 +359,9 @@ flush_buffer(_, []) -> ok;
 flush_buffer(File, Buf) ->
     ok = file:write(File, lists:reverse(Buf)).
 
+render_job_counters([], []) ->
+    "";
+
 render_job_counters([[Name, Value]], Acc) ->
     Acc++"{\""++Name++"\""++": "++
 	integer_to_list(Value)++
