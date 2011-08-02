@@ -246,6 +246,9 @@ count_maps(L) ->
                          end, {0, 0}, L),
     {M, N - M}.
 
+%%------------------------------------------------------------------------------
+%% @doc Create string to display from CounterList
+%%------------------------------------------------------------------------------
 render_counters([], Acc) ->
     Acc;
 render_counters([H|T], Acc) ->
@@ -291,7 +294,7 @@ render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed, Counters},
               {worker, JobInfo#jobinfo.worker},
               {hosts, [list_to_binary(Host) || Host <- Hosts]},
               {owner, JobInfo#jobinfo.owner},
-	      {counters, list_to_binary(CountersString)}
+              {counters, list_to_binary(CountersString)}
              ]}.
 
 status_msg(invalid_job) -> [<<"unknown job">>, []];

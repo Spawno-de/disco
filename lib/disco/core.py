@@ -227,6 +227,7 @@ class Disco(object):
                             offset=offset)
 
     def counters(self, jobname):
+        """Returns list of counters. Works only after job is finished"""
         return json.loads(
             self.request('/disco/ctrl/get_counters?name=%s' % jobname))
 

@@ -1,3 +1,13 @@
+"""
+:mod:`disco.counter` -- Disco Counter
+=======================================
+
+The :mod:`disco.counter` module provides interface for
+creating and updating counters. Counters can be used for sanity checking.
+They are updated every time when some event occures.
+If job is terminated due to errors counters are NOT reset.
+"""
+
 from disco.worker import Worker
 
 import sys

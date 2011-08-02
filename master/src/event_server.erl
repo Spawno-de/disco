@@ -147,8 +147,7 @@ handle_call({get_jobinfo, JobName}, _From, {Events, _MsgBuf} = S) ->
             Ready = event_filter(task_ready, EventList),
             Failed = event_filter(task_failed, EventList),
             Start = format_timestamp(JobStart),
-	    Counters = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
-	    %io:format("~w", [Counters]),
+            Counters = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
             {reply, {ok, {Start, Pid, JobNfo, Results, Ready, Failed, Counters}}, S}
     end.
 
@@ -185,8 +184,8 @@ handle_cast({clean_job, JobName}, {Events, _MsgBuf} = S) ->
 handle_cast({increment_counter, _Host, JobName, Counter, _Paramas}, S) ->
     {struct,[{<<"name">>, CounterName}, {<<"value">>, CounterValue}]} = Counter,
     case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
-	[] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
-	_ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
+        [] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
+        _ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
     end,
     {noreply, S}.
 
@@ -359,19 +358,25 @@ flush_buffer(_, []) -> ok;
 flush_buffer(File, Buf) ->
     ok = file:write(File, lists:reverse(Buf)).
 
+%%------------------------------------------------------------------------------
+%% @doc Make string from counter information stored in ETS table.
+%%------------------------------------------------------------------------------
 render_job_counters([], []) ->
     "";
 
 render_job_counters([[Name, Value]], Acc) ->
     Acc++"{\""++Name++"\""++": "++
-	integer_to_list(Value)++
-	"}";
+        integer_to_list(Value)++
+        "}";
 
 render_job_counters([[Name, Value] | T], Acc) ->
     render_job_counters(T, Acc++"{\""++Name++"\""++": "++
-	integer_to_list(Value)++
-	"}, ").
+                            integer_to_list(Value)++
+                            "}, ").
 
+%%------------------------------------------------------------------------------
+%% @doc Write counter information to file.
+%%------------------------------------------------------------------------------
 serialize_job_counters(JobName) ->
     {ok, _JobName} = disco:make_dir(disco:jobhome(JobName)),
     {ok, File} = file:open(job_counters_file_name(JobName), [append, raw]),

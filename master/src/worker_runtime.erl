@@ -12,7 +12,7 @@
                 persisted_outputs :: [string()],
                 output_filename :: 'none' | string(),
                 output_file :: 'none' | file:io_device(),
-	        counter_pid :: 'none' | non_neg_integer()}).
+                counter_pid :: 'none' | non_neg_integer()}).
 -type state() :: #state{}.
 -export_type([state/0]).
 
@@ -26,7 +26,7 @@ init(Task, Master) ->
            persisted_outputs = [],
            output_filename = none,
            output_file = none,
-	   counter_pid = spawn_link(worker_runtime, init_counters, [Task, Master])}.
+           counter_pid = spawn_link(worker_runtime, init_counters, [Task, Master])}.
 
 -spec get_pid(state()) -> 'none' | non_neg_integer().
 get_pid(#state{child_pid = Pid}) ->
@@ -54,7 +54,7 @@ payload_type(<<"OUTPUT">>) ->
            {array, [string, string, string]}]};
 
 payload_type(<<"INC">>) -> {object, [{<<"name">>, string},
-				     {<<"value">>, integer}]};
+                                     {<<"value">>, integer}]};
 
 payload_type(_Type) -> none.
 
@@ -165,7 +165,7 @@ do_handle({<<"PING">>, _Body}, S) ->
 do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master, counter_pid = CounterPid} = S) ->
     CounterPid ! {send_now, self()},
     receive
-	all_counters_sent -> all_counters_sent
+        all_counters_sent -> all_counters_sent
     end,
     case close_output(S) of
         ok ->
@@ -269,41 +269,56 @@ close_output(#state{output_file = File}) ->
 ioerror(Msg, Reason) ->
     [Msg, ": ", atom_to_list(Reason)].
 
+%%------------------------------------------------------------------------------
+%% @doc Initialize ETS table and process for counters
+%%------------------------------------------------------------------------------
 init_counters(Task, Master) ->
-    _ = ets:new(job_counters, [named_table]),
+    ets:new(job_counters, [named_table]),
     loop_counters(now(), Task, Master).
 
+%%------------------------------------------------------------------------------
+%% @doc Receive incrementation reqests, group them and send to event_server
+%% 
+%% It works as a throttle sending grouped requests as a single message
+%% every ?COUNTER_UPDATE_TIME ms. Counters are updated in ETS job_counters.
+%% There is one process loop_counters per worker.
+%%------------------------------------------------------------------------------
 loop_counters(Time, Task, Master) ->
     receive
-	{counter_add, CounterName, CounterValue} ->
-	    case ets:match(job_counters, {CounterName, '$1'}) of
-		[] -> ets:insert(job_counters, {CounterName, CounterValue});
-		_ -> ets:update_counter(job_counters, CounterName, CounterValue)
-	    end,
-	    NewTime = now(),
-	    Diff = timer:now_diff(NewTime, Time) / 1000,
-	    case Diff of
-		N when N > ?COUNTER_UPDATE_TIME ->
-		    send_counters(Task, Master),
-		    loop_counters(now(), Task, Master);
-		_ ->
-		    loop_counters(Time, Task, Master)
-	    end;
-	{send_now, From} ->
-	    send_counters(Task, Master),
-	    From ! all_counters_sent
+        {counter_add, CounterName, CounterValue} ->
+            case ets:match(job_counters, {CounterName, '$1'}) of
+                [] -> ets:insert(job_counters, {CounterName, CounterValue});
+                _ -> ets:update_counter(job_counters, CounterName, CounterValue)
+            end,
+            NewTime = now(),
+            Diff = timer:now_diff(NewTime, Time) / 1000,
+            case Diff of
+                % last update was more than ?COUNTER_UPDATE_TIME ms ago
+                N when N > ?COUNTER_UPDATE_TIME ->
+                    send_counters(Task, Master),
+                    loop_counters(now(), Task, Master);
+                % last update was less than ?COUNTER_UPDATE_TIME ms ago
+                _ ->
+                    loop_counters(Time, Task, Master)
+            end;
+        {send_now, From} ->
+            send_counters(Task, Master),
+            From ! all_counters_sent
     after
-	?COUNTER_UPDATE_TIME ->
-	    send_counters(Task, Master),
-	    loop_counters(now(), Task, Master)
+        ?COUNTER_UPDATE_TIME ->
+            send_counters(Task, Master),
+            loop_counters(now(), Task, Master)
     end.
 
+%%------------------------------------------------------------------------------
+%% send values of counters to event_server and clear ETS job_counters
+%%------------------------------------------------------------------------------
 send_counters(Task, Master) ->
     AllCounters = ets:match(job_counters, '$1'),
     SendCounter = fun(X) ->
-			  [{Name,Value}] = X,
-			  Counter = {struct,[{<<110,97,109,101>>,Name},{<<118,97,108,117,101>>,Value}]},    
-			  disco_worker:event({<<"INC">>, Counter}, Task, Master)
-		  end,
+                          [{Name,Value}] = X,
+                          Counter = {struct,[{<<"name">>,Name},{<<"value">>,Value}]},    
+                          disco_worker:event({<<"INC">>, Counter}, Task, Master)
+                  end,
     lists:foreach(SendCounter , AllCounters),
     ets:delete_all_objects(job_counters).
