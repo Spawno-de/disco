@@ -65,6 +65,7 @@ where 'SP' denotes a single space character, and *<name>* is one of:
       |     :ref:`ERROR`
       |     :ref:`FAIL`
       |     :ref:`FATAL`
+      |     :ref: `INC`
       |     :ref:`INPUT`
       |     :ref:`INPUT_ERR`
       |     :ref:`MSG`
@@ -279,6 +280,17 @@ MSG
 
    The worker can send a `MSG` message, with a payload containing a string.
    Disco should respond with an `OK`.
+
+.. _INC:
+
+INC
+---
+
+   Send request for incrementing counter.
+
+   The worker can send a `INC` request with a payload containing name
+   of the counter as a string and value which will be added to this counter.
+   Disco should respond with an `OK`
 
 
 .. _OUTPUT:
