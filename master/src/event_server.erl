@@ -181,12 +181,15 @@ handle_cast({clean_job, JobName}, {Events, _MsgBuf} = S) ->
     delete_jobdir(JobName),
     {noreply, {dict:erase(JobName, Events), MsgBufN}};
 
-handle_cast({increment_counter, _Host, JobName, Counter, _Paramas}, S) ->
-    {struct,[{<<"name">>, CounterName}, {<<"value">>, CounterValue}]} = Counter,
-    case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
-        [] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
-        _ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
-    end,
+handle_cast({increment_counters, _Host, JobName, CounterList, _Paramas}, S) ->
+    UpdateCounter = fun(Counter) ->
+                            {CounterName, CounterValue} = Counter,
+                            case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
+                                [] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
+                                _ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
+                            end
+                    end,
+    lists:foreach(UpdateCounter, CounterList),
     {noreply, S}.
 
 handle_info(Msg, State) ->
@@ -294,8 +297,8 @@ task_event(Task, Event, Params) ->
 task_event(Task, Event, Params, Host) ->
     task_event(Task, Event, Params, Host, event_server).
 
-task_event(Task, {<<"INC">>, Counter}, {}, Host, EventServer) ->
-    gen_server:cast(EventServer, {increment_counter, Host, Task#task.jobname, Counter, {}});
+task_event(Task, {<<"INC">>, CounterList}, {}, Host, EventServer) ->
+    gen_server:cast(EventServer, {increment_counters, Host, Task#task.jobname, CounterList, {}});
     
 task_event(Task, {Type, Message}, Params, Host, EventServer) ->
     event(EventServer,

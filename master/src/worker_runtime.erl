@@ -311,14 +311,15 @@ loop_counters(Time, Task, Master) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% send values of counters to event_server and clear ETS job_counters
+%% send counters to event_server and clear ETS job_counters
 %%------------------------------------------------------------------------------
 send_counters(Task, Master) ->
-    AllCounters = ets:match(job_counters, '$1'),
-    SendCounter = fun(X) ->
-                          [{Name,Value}] = X,
-                          Counter = {struct,[{<<"name">>,Name},{<<"value">>,Value}]},    
-                          disco_worker:event({<<"INC">>, Counter}, Task, Master)
-                  end,
-    lists:foreach(SendCounter , AllCounters),
+    AllCounters = lists:flatten(ets:match(job_counters, '$1')),
+    disco_worker:event({<<"INC">>, AllCounters}, Task, Master),
+    %SendCounter = fun(X) ->
+    %                      [{Name,Value}] = X,
+    %                      Counter = {struct,[{<<"name">>,Name},{<<"value">>,Value}]},    
+    %                      disco_worker:event({<<"INC">>, Counter}, Task, Master)
+    %              end,
+    %lists:foreach(SendCounter , AllCounters),
     ets:delete_all_objects(job_counters).
