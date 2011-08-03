@@ -316,10 +316,4 @@ loop_counters(Time, Task, Master) ->
 send_counters(Task, Master) ->
     AllCounters = lists:flatten(ets:match(job_counters, '$1')),
     disco_worker:event({<<"INC">>, AllCounters}, Task, Master),
-    %SendCounter = fun(X) ->
-    %                      [{Name,Value}] = X,
-    %                      Counter = {struct,[{<<"name">>,Name},{<<"value">>,Value}]},    
-    %                      disco_worker:event({<<"INC">>, Counter}, Task, Master)
-    %              end,
-    %lists:foreach(SendCounter , AllCounters),
     ets:delete_all_objects(job_counters).
