@@ -278,7 +278,7 @@ init_counters(Task, Master) ->
 
 %%------------------------------------------------------------------------------
 %% @doc Receive incrementation reqests, group them and send to event_server
-%% 
+%%
 %% It works as a throttle sending grouped requests as a single message
 %% every ?COUNTER_UPDATE_TIME ms. Counters are updated in ETS job_counters.
 %% There is one process loop_counters per worker.
@@ -317,3 +317,4 @@ send_counters(Task, Master) ->
     AllCounters = lists:flatten(ets:match(job_counters, '$1')),
     disco_worker:event({<<"INC">>, AllCounters}, Task, Master),
     ets:delete_all_objects(job_counters).
+

@@ -299,7 +299,7 @@ task_event(Task, Event, Params, Host) ->
 
 task_event(Task, {<<"INC">>, CounterList}, {}, Host, EventServer) ->
     gen_server:cast(EventServer, {increment_counters, Host, Task#task.jobname, CounterList, {}});
-    
+
 task_event(Task, {Type, Message}, Params, Host, EventServer) ->
     event(EventServer,
           Host,
@@ -364,18 +364,9 @@ flush_buffer(File, Buf) ->
 %%------------------------------------------------------------------------------
 %% @doc Make string from counter information stored in ETS table.
 %%------------------------------------------------------------------------------
-render_job_counters([], []) ->
-    "";
-
-render_job_counters([[Name, Value]], Acc) ->
-    Acc++"{\""++Name++"\""++": "++
-        integer_to_list(Value)++
-        "}";
-
-render_job_counters([[Name, Value] | T], Acc) ->
-    render_job_counters(T, Acc++"{\""++Name++"\""++": "++
-                            integer_to_list(Value)++
-                            "}, ").
+render_job_counters(CounterData) ->
+    JsonData = lists:map(fun(Counter) -> [Name, Value] = Counter, {struct, [{Name, Value}]} end, CounterData),
+    mochijson2:encode(JsonData).
 
 %%------------------------------------------------------------------------------
 %% @doc Write counter information to file.
@@ -384,6 +375,6 @@ serialize_job_counters(JobName) ->
     {ok, _JobName} = disco:make_dir(disco:jobhome(JobName)),
     {ok, File} = file:open(job_counters_file_name(JobName), [append, raw]),
     CounterData = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
-    AllCounterData = render_job_counters(CounterData, ""),
-    file:write(File, "["++AllCounterData++"]"),
+    AllCounterData = render_job_counters(CounterData),
+    file:write(File, AllCounterData),
     file:close(File).
