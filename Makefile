@@ -43,11 +43,12 @@ EBIN  = master/ebin
 ESRC  = master/src
 ETEST = master/test
 
-ELIBS    = $(ESRC) $(ESRC)/ddfs $(ESRC)/mochiweb
+ELIBS    = $(ESRC) $(ESRC)/ddfs $(ESRC)/mochiweb $(ESRC)/gproc
 ESOURCES = $(foreach lib,$(ELIBS),$(wildcard $(lib)/*.erl))
 EHEADERS = $(foreach lib,$(ELIBS),$(wildcard $(lib)/*.hrl))
+EAPPFILES= $(foreach lib,$(ELIBS),$(wildcard $(lib)/*.app.src))
 EAPPS    = $(subst $(ESRC),$(EBIN),$(ELIBS))
-EOBJECTS = $(subst $(ESRC),$(EBIN),$(ESOURCES:.erl=.beam))
+EOBJECTS = $(subst $(ESRC),$(EBIN),$(ESOURCES:.erl=.beam) $(EAPPFILES:.app.src=.app))
 ETARGETS = $(foreach object,$(EOBJECTS),$(TARGETLIB)/$(object))
 
 ETESTSOURCES = $(wildcard $(ETEST)/*.erl)
@@ -133,6 +134,9 @@ $(EBIN)/disco.app: $(ESRC)/disco.app | $(EBIN)
 
 $(EBIN)/%.beam: $(ESRC)/%.erl $(EHEADERS) | $(EBIN)
 	$(ERLC) $(EOPT) -o $(dir $@) $<
+
+$(EBIN)/%.app: $(ESRC)/%.app.src $(EAPPFILES) | $(EBIN)
+	cp $< $@
 
 $(ETEST)/%.beam: $(ETEST)/%.erl
 	$(ERLC) $(EOPT) -o $(dir $@) $<

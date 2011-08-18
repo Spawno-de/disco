@@ -205,7 +205,8 @@ class Master(clx.server.Server):
                 '-pa', ebin(''),
                 '-pa', ebin('mochiweb'),
                 '-pa', ebin('ddfs'),
-                '-eval', 'application:start(disco)']
+                '-pa', ebin('gproc'),
+                '-eval', 'lists:foreach(fun(X) -> ok = application:start(X) end, [gproc, disco])']
 
     @property
     def host(self):
