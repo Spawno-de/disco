@@ -41,6 +41,7 @@ spawn_node(Host, IsMaster) ->
 -spec node_monitor(nonempty_string(), node(), {bool(), bool()}) -> _.
 node_monitor(Host, Node, WebConfig) ->
     monitor_node(Node, true),
+    start_gproc(Node),
     start_ddfs_node(Node, WebConfig),
     start_temp_gc(Node),
     start_lock_server(Node),
@@ -69,7 +70,8 @@ slave_env() ->
     Home = disco:get_setting("DISCO_MASTER_HOME"),
     lists:flatten([?SLAVE_ARGS,
                    [io_lib:format(" -pa ~s/ebin/~s", [Home, Dir])
-                    || Dir <- ["", "mochiweb", "ddfs"]],
+                    || Dir <- ["", "mochiweb", "ddfs", "gproc"]],
+                   [" -gproc gproc_dist all"],
                    [io_lib:format(" -env ~s '~s'", [S, disco:get_setting(S)])
                     || S <- disco:settings()]]).
 
@@ -123,3 +125,7 @@ start_ddfs_node(Node, {GetEnabled, PutEnabled}) ->
             {get_enabled, GetEnabled},
             {put_enabled, PutEnabled}],
     spawn_link(Node, ddfs_node, start_link, [Args]).
+
+-spec start_gproc(node()) -> pid().
+start_gproc(Node) ->
+    spawn(Node, application, start, [gproc]).

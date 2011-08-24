@@ -206,6 +206,7 @@ class Master(clx.server.Server):
                 '-pa', ebin('mochiweb'),
                 '-pa', ebin('ddfs'),
                 '-pa', ebin('gproc'),
+                '-gproc', 'gproc_dist', 'all',
                 '-eval', 'lists:foreach(fun(X) -> ok = application:start(X) end, [gproc, disco])']
 
     @property

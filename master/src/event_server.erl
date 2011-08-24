@@ -45,7 +45,6 @@ stop() ->
 
 init(_Args) ->
     _ = ets:new(event_files, [named_table]),
-    _ = ets:new(job_counters, [named_table]),
     {ok, {dict:new(), dict:new()}}.
 
 json_list(List) -> json_list(List, []).
@@ -147,7 +146,8 @@ handle_call({get_jobinfo, JobName}, _From, {Events, _MsgBuf} = S) ->
             Ready = event_filter(task_ready, EventList),
             Failed = event_filter(task_failed, EventList),
             Start = format_timestamp(JobStart),
-            Counters = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
+            %% Select counters from gproc
+            Counters = sum_job_counters(select_job_counters(JobName)),
             {reply, {ok, {Start, Pid, JobNfo, Results, Ready, Failed, Counters}}, S}
     end.
 
@@ -181,12 +181,13 @@ handle_cast({clean_job, JobName}, {Events, _MsgBuf} = S) ->
     delete_jobdir(JobName),
     {noreply, {dict:erase(JobName, Events), MsgBufN}};
 
-handle_cast({increment_counters, _Host, JobName, CounterList, _Paramas}, S) ->
+handle_cast({increment_counters, _Host, JobName, TaskId, CounterList, _Paramas}, S) ->
     UpdateCounter = fun(Counter) ->
                             {CounterName, CounterValue} = Counter,
-                            case ets:match(job_counters, {{JobName, CounterName}, '$1'}) of
-                                [] -> ets:insert(job_counters, {{JobName, CounterName}, CounterValue});
-                                _ -> ets:update_counter(job_counters, {JobName, CounterName}, CounterValue)
+                            Name = {JobName, TaskId, CounterName},
+                            case gproc:lookup_local_counters(Name) of
+                                [] -> gproc:add_local_counter(Name, CounterValue);
+                                _ -> gproc:set_value({c, l, Name}, CounterValue)
                             end
                     end,
     lists:foreach(UpdateCounter, CounterList),
@@ -298,7 +299,7 @@ task_event(Task, Event, Params, Host) ->
     task_event(Task, Event, Params, Host, event_server).
 
 task_event(Task, {<<"INC">>, CounterList}, {}, Host, EventServer) ->
-    gen_server:cast(EventServer, {increment_counters, Host, Task#task.jobname, CounterList, {}});
+    gen_server:cast(EventServer, {increment_counters, Host, Task#task.jobname, Task#task.taskid, CounterList, {}});
 
 task_event(Task, {Type, Message}, Params, Host, EventServer) ->
     event(EventServer,
@@ -365,7 +366,11 @@ flush_buffer(File, Buf) ->
 %% @doc Make string from counter information stored in ETS table.
 %%------------------------------------------------------------------------------
 render_job_counters(CounterData) ->
-    JsonData = lists:map(fun(Counter) -> [Name, Value] = Counter, {struct, [{Name, Value}]} end, CounterData),
+    JsonData = lists:map(fun(Counter) ->
+                                 {Name, Value} = Counter,
+                                 {struct, [{binary_to_list(Name), Value}]}
+                         end,
+                         CounterData),
     mochijson2:encode(JsonData).
 
 %%------------------------------------------------------------------------------
@@ -374,7 +379,38 @@ render_job_counters(CounterData) ->
 serialize_job_counters(JobName) ->
     {ok, _JobName} = disco:make_dir(disco:jobhome(JobName)),
     {ok, File} = file:open(job_counters_file_name(JobName), [append, raw]),
-    CounterData = ets:match(job_counters, {{JobName, '$1'}, '$2'}),
+    CounterData = sum_job_counters(select_job_counters(JobName)),
     AllCounterData = render_job_counters(CounterData),
     file:write(File, AllCounterData),
     file:close(File).
+
+%%------------------------------------------------------------------------------
+%% gproc:select/3 is rather complecated so I wrap it with select_job_counters/1.
+%% It returns all counters in job in format [{CounterName, CounterValue}, ...]
+%%------------------------------------------------------------------------------
+select_job_counters(JobName) ->
+    Key = {JobName, '_', '_'},
+    GProcKey = {c, l, Key},
+    MatchHead = {GProcKey, '_', '_'},
+    Guard = [],
+    Result = ['$$'],
+    SelectedCounters = gproc:select([{MatchHead, Guard, Result}]),
+    lists:map(fun([{c, l, {_JobName, _TaskId, CounterName}}, _Pid, CounterValue]) ->
+                      {CounterName, CounterValue} end,
+              SelectedCounters).
+
+%%------------------------------------------------------------------------------
+%% List returned from select_job_counters/1 may containg duplicates,
+%% which are counters from diffrent tasks.
+%% It returns all counters in job in format [{CounterName, CounterValue}, ...]
+%%------------------------------------------------------------------------------
+sum_job_counters(JobCounters) ->
+    SearchAndAddFun = fun({CounterName, CounterValue}, CounterList) ->
+                              case lists:keyfind(CounterName, 1, CounterList) of
+                                  false ->
+                                      [{CounterName, CounterValue} | CounterList];
+                                  {CounterName, OldValue} ->
+                                      [{CounterName, CounterValue + OldValue} | lists:keydelete(CounterName, 1, CounterList)]
+                              end
+                      end,
+    lists:foldl(SearchAndAddFun, [], JobCounters).

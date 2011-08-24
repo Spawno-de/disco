@@ -1,6 +1,6 @@
 -module(worker_runtime).
 -define(COUNTER_UPDATE_TIME, 2000).
--export([init/2, handle/2, get_pid/1, init_counters/2]).
+-export([init/2, handle/2, get_pid/1]).
 
 -include("disco.hrl").
 
@@ -11,8 +11,7 @@
                 child_pid :: 'none' | non_neg_integer(),
                 persisted_outputs :: [string()],
                 output_filename :: 'none' | string(),
-                output_file :: 'none' | file:io_device(),
-                counter_pid :: 'none' | non_neg_integer()}).
+                output_file :: 'none' | file:io_device()}).
 -type state() :: #state{}.
 -export_type([state/0]).
 
@@ -25,8 +24,7 @@ init(Task, Master) ->
            child_pid = none,
            persisted_outputs = [],
            output_filename = none,
-           output_file = none,
-           counter_pid = spawn_link(worker_runtime, init_counters, [Task, Master])}.
+           output_file = none}.
 
 -spec get_pid(state()) -> 'none' | non_neg_integer().
 get_pid(#state{child_pid = Pid}) ->
@@ -162,11 +160,8 @@ do_handle({<<"OUTPUT">>, Results}, S) ->
 do_handle({<<"PING">>, _Body}, S) ->
     {ok, {"OK", <<"pong">>}, S};
 
-do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master, counter_pid = CounterPid} = S) ->
-    CounterPid ! {send_now, self()},
-    receive
-        all_counters_sent -> all_counters_sent
-    end,
+do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master} = S) ->
+    send_counters(Task, Master),
     case close_output(S) of
         ok ->
             Time = disco:format_time_since(S#state.start_time),
@@ -178,9 +173,13 @@ do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master, counter_pid 
     end;
 
 %new handle to counters
-do_handle({<<"INC">>, Counter}, #state{counter_pid = CounterPid} = S) ->
-    {struct,[{<<110,97,109,101>>,Name},{<<118,97,108,117,101>>,Value}]} = Counter,
-    CounterPid ! {counter_add, binary_to_list(Name), Value},
+do_handle({<<"INC">>, Counter}, S) ->
+    {struct,[{<<"name">>,Name},{<<"value">>,Value}]} = Counter,
+    case gproc:lookup_local_counters(Name) of
+        [] -> gproc:add_local_counter(Name, Value),
+              gproc:update_counter({c, l, Name}, Value);
+        _ -> gproc:update_counter({c, l, Name}, Value)
+    end,
     {ok, {"OK", <<"ok">>}, S}.
 
 
@@ -270,51 +269,15 @@ ioerror(Msg, Reason) ->
     [Msg, ": ", atom_to_list(Reason)].
 
 %%------------------------------------------------------------------------------
-%% @doc Initialize ETS table and process for counters
-%%------------------------------------------------------------------------------
-init_counters(Task, Master) ->
-    ets:new(job_counters, [named_table]),
-    loop_counters(now(), Task, Master).
-
-%%------------------------------------------------------------------------------
-%% @doc Receive incrementation reqests, group them and send to event_server
-%%
-%% It works as a throttle sending grouped requests as a single message
-%% every ?COUNTER_UPDATE_TIME ms. Counters are updated in ETS job_counters.
-%% There is one process loop_counters per worker.
-%%------------------------------------------------------------------------------
-loop_counters(Time, Task, Master) ->
-    receive
-        {counter_add, CounterName, CounterValue} ->
-            case ets:match(job_counters, {CounterName, '$1'}) of
-                [] -> ets:insert(job_counters, {CounterName, CounterValue});
-                _ -> ets:update_counter(job_counters, CounterName, CounterValue)
-            end,
-            NewTime = now(),
-            Diff = timer:now_diff(NewTime, Time) / 1000,
-            case Diff of
-                % last update was more than ?COUNTER_UPDATE_TIME ms ago
-                N when N > ?COUNTER_UPDATE_TIME ->
-                    send_counters(Task, Master),
-                    loop_counters(now(), Task, Master);
-                % last update was less than ?COUNTER_UPDATE_TIME ms ago
-                _ ->
-                    loop_counters(Time, Task, Master)
-            end;
-        {send_now, From} ->
-            send_counters(Task, Master),
-            From ! all_counters_sent
-    after
-        ?COUNTER_UPDATE_TIME ->
-            send_counters(Task, Master),
-            loop_counters(now(), Task, Master)
-    end.
-
-%%------------------------------------------------------------------------------
-%% send counters to event_server and clear ETS job_counters
+%% send couters to event server
 %%------------------------------------------------------------------------------
 send_counters(Task, Master) ->
-    AllCounters = lists:flatten(ets:match(job_counters, '$1')),
-    disco_worker:event({<<"INC">>, AllCounters}, Task, Master),
-    ets:delete_all_objects(job_counters).
-
+    MatchHead = '_',
+    Guard = [],
+    Result = ['$$'],
+    %% Selected counters are formed [[{c, l, <<"name1">>}, Pid, value1], [{c, l, <<"name2">>}, Pid, value2]]
+    SelectedCounters = gproc:select({l, c}, [{MatchHead, Guard, Result}]),
+    %% Transform SelectedCounters to form: [{<<"name1">>, value1}, {<<"name2">>, value2}]
+    ResultCounters = lists:map(fun([{c, l, Name}, _, Value]) -> {Name, Value} end, SelectedCounters),
+    %% Make counters global
+    disco_worker:event({<<"INC">>, ResultCounters}, Task, Master).

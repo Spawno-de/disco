@@ -252,8 +252,8 @@ count_maps(L) ->
 render_counters([], Acc) ->
     Acc;
 render_counters([H|T], Acc) ->
-    [CounterName, Value] = H,
-    render_counters(T, Acc++io_lib:nl()++CounterName++": "++integer_to_list(Value)).
+    {CounterName, Value} = H,
+    render_counters(T, Acc++io_lib:nl()++binary_to_list(CounterName)++": "++integer_to_list(Value)).
 
 render_jobinfo({Timestamp, Pid, JobInfo, Results, Ready, Failed, Counters},
                {Hosts, Modes}) ->
