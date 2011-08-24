@@ -147,7 +147,7 @@ handle_call({get_jobinfo, JobName}, _From, {Events, _MsgBuf} = S) ->
             Failed = event_filter(task_failed, EventList),
             Start = format_timestamp(JobStart),
             %% Select counters from gproc
-            Counters = sum_job_counters(select_job_counters(JobName)),
+            Counters = disco_counters:sum_job_counters(disco_counters:select_job_counters(JobName)),
             {reply, {ok, {Start, Pid, JobNfo, Results, Ready, Failed, Counters}}, S}
     end.
 
@@ -161,7 +161,7 @@ handle_cast({add_job_event, Host, JobName, Msg, Params}, {_Events, MsgBuf} = S) 
 % check that the job coord is still alive - if not, call job_done for
 % the zombie job.
 handle_cast({job_done, JobName}, {Events, MsgBuf} = S) ->
-    serialize_job_counters(JobName),
+    disco_counters:serialize_job_counters(JobName),
     case ets:lookup(event_files, JobName) of
         [] ->
             ok;
@@ -199,9 +199,6 @@ handle_info(Msg, State) ->
 
 event_log(JobName) ->
     filename:join(disco:jobhome(JobName), "events").
-
-job_counters_file_name(JobName) ->
-    filename:join(disco:jobhome(JobName), "counters").
 
 tail_log(JobName, N) ->
     Tail = string:tokens(os:cmd(["tail -n ", integer_to_list(N), " ",
@@ -361,56 +358,3 @@ job_event_handler_do(File, Buf, BufSize) ->
 flush_buffer(_, []) -> ok;
 flush_buffer(File, Buf) ->
     ok = file:write(File, lists:reverse(Buf)).
-
-%%------------------------------------------------------------------------------
-%% @doc Make string from counter information stored in ETS table.
-%%------------------------------------------------------------------------------
-render_job_counters(CounterData) ->
-    JsonData = lists:map(fun(Counter) ->
-                                 {Name, Value} = Counter,
-                                 {struct, [{binary_to_list(Name), Value}]}
-                         end,
-                         CounterData),
-    mochijson2:encode(JsonData).
-
-%%------------------------------------------------------------------------------
-%% @doc Write counter information to file.
-%%------------------------------------------------------------------------------
-serialize_job_counters(JobName) ->
-    {ok, _JobName} = disco:make_dir(disco:jobhome(JobName)),
-    {ok, File} = file:open(job_counters_file_name(JobName), [append, raw]),
-    CounterData = sum_job_counters(select_job_counters(JobName)),
-    AllCounterData = render_job_counters(CounterData),
-    file:write(File, AllCounterData),
-    file:close(File).
-
-%%------------------------------------------------------------------------------
-%% gproc:select/3 is rather complecated so I wrap it with select_job_counters/1.
-%% It returns all counters in job in format [{CounterName, CounterValue}, ...]
-%%------------------------------------------------------------------------------
-select_job_counters(JobName) ->
-    Key = {JobName, '_', '_'},
-    GProcKey = {c, l, Key},
-    MatchHead = {GProcKey, '_', '_'},
-    Guard = [],
-    Result = ['$$'],
-    SelectedCounters = gproc:select([{MatchHead, Guard, Result}]),
-    lists:map(fun([{c, l, {_JobName, _TaskId, CounterName}}, _Pid, CounterValue]) ->
-                      {CounterName, CounterValue} end,
-              SelectedCounters).
-
-%%------------------------------------------------------------------------------
-%% List returned from select_job_counters/1 may containg duplicates,
-%% which are counters from diffrent tasks.
-%% It returns all counters in job in format [{CounterName, CounterValue}, ...]
-%%------------------------------------------------------------------------------
-sum_job_counters(JobCounters) ->
-    SearchAndAddFun = fun({CounterName, CounterValue}, CounterList) ->
-                              case lists:keyfind(CounterName, 1, CounterList) of
-                                  false ->
-                                      [{CounterName, CounterValue} | CounterList];
-                                  {CounterName, OldValue} ->
-                                      [{CounterName, CounterValue + OldValue} | lists:keydelete(CounterName, 1, CounterList)]
-                              end
-                      end,
-    lists:foldl(SearchAndAddFun, [], JobCounters).

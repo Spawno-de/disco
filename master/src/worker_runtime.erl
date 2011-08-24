@@ -176,8 +176,7 @@ do_handle({<<"DONE">>, _Body}, #state{task = Task, master = Master} = S) ->
 do_handle({<<"INC">>, Counter}, S) ->
     {struct,[{<<"name">>,Name},{<<"value">>,Value}]} = Counter,
     case gproc:lookup_local_counters(Name) of
-        [] -> gproc:add_local_counter(Name, Value),
-              gproc:update_counter({c, l, Name}, Value);
+        [] -> gproc:add_local_counter(Name, Value);
         _ -> gproc:update_counter({c, l, Name}, Value)
     end,
     {ok, {"OK", <<"ok">>}, S}.
